@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: content-risk-scoring
+  namespace: content-risk-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: content-risk-scoring
+  template:
+    metadata:
+      labels:
+        app: content-risk-scoring
+    spec:
+      containers:
+        - name: inference
+          image: content-risk-scoring:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
