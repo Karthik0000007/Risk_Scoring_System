@@ -5,7 +5,6 @@ The system will provide synchronous, probabilistic risk scoring for text content
 
 ## Context
 - Modern platforms require fast, explainable risk signals before content is persisted or published.
-- The project is constrained to a 14-day solo implementation.
 - Failure would mean building a demo that optimizes accuracy instead of reliability, or a system with unclear ownership boundaries.
 
 ## In Scope
