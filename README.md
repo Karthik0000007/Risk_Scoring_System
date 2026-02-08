@@ -1,11 +1,14 @@
 # Real-Time Content Risk Scoring System
 
 ## Overview
-Production-grade, synchronous text risk scoring service designed to demonstrate
-reliable ML system deployment under realistic constraints.
+This is a production-grade, synchronous text risk scoring service.
+It exposes a REST API that assigns probabilistic risk scores under strict latency constraints.
 
-The system prioritizes correctness, observability, and safe failure behavior
-over model sophistication.
+The key design goal was reliability over model sophistication. Training is offline and versioned, inference is stateless, and deployment is gated through CI/CD.
+
+Failures are handled explicitly: model load failures block traffic via readiness probes, runtime errors degrade responses instead of crashing, and all behavior is observable via logs and metrics.
+
+The system is containerized, deployed on Kubernetes, and intentionally scoped for a small team operating a risk-sensitive service.
 
 ## Non-Goals
 - State-of-the-art NLP accuracy
