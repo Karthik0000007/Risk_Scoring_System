@@ -2,8 +2,6 @@ from fastapi import APIRouter
 from app.schemas.score import ScoreRequest, ScoreResponse
 from app.models.loader import ModelLoader
 import logging
-import time
-time.sleep(0.2)
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +11,21 @@ model = ModelLoader()
 model.load()
 
 
+def _classify(score: float) -> str:
+    """Map a numeric risk score to a human-readable label."""
+    if score < 0.3:
+        return "LOW"
+    elif score <= 0.6:
+        return "MEDIUM"
+    else:
+        return "HIGH"
+
+
 @router.post("/score", response_model=ScoreResponse)
 def score(req: ScoreRequest):
     try:
         score_value = model.predict(req.content)
-        label = "LOW" if score_value < 0.3 else "HIGH"
+        label = _classify(score_value)
 
         return ScoreResponse(
             risk_score=score_value,
