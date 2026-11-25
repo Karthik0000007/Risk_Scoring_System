@@ -1,7 +1,7 @@
 # Inference Service Decisions
 
 ## Decision
-The inference layer will be implemented as a stateless HTTP service exposing a synchronous REST API with strict input validation, bounded latency, and explicit failure behavior.
+The inference layer is a stateless HTTP service exposing a synchronous REST API with strict input validation and explicit failure behavior.
 
 ## Context
 - The service is invoked synchronously by upstream content submission systems.
@@ -20,32 +20,31 @@ The inference layer will be implemented as a stateless HTTP service exposing a s
 - REST is widely understood and easier to debug operationally.
 - JSON payloads allow explicit schema validation and logging.
 - Synchronous responses simplify failure semantics for callers.
-- This aligns with conservative production choices common in Japanese platforms.
 
 ## API Contract Principles
-- Inputs are strictly validated at the boundary.
-- Invalid requests fail fast with explicit error codes.
-- Responses always include model version and confidence metadata.
+- Inputs are validated at the boundary by Pydantic: `content` must be 1 to 5000 characters.
+- Invalid requests fail fast with `422`.
+- Every `200` response includes `risk_score`, `risk_label`, `model_version` and a `degraded` flag, so callers can tell a model score from a fallback score.
 
 ## Model Loading Strategy
-- Model artifacts are loaded once at process startup.
-- Readiness probes fail until model loading succeeds.
-- Model is treated as immutable during runtime.
+- The model artifact (`MODEL_PATH`, default `models/risk-v1.joblib`) is loaded once by the FastAPI lifespan handler at startup.
+- If loading fails, the process stays up, `/readyz` returns `503` with the reason, and `/score` returns `503`.
+- The model is treated as immutable during runtime.
 
 ## Latency Control
-- Inference execution is bounded by request-level timeouts.
 - No retries are performed within the service.
-- Slow requests are terminated to protect tail latency.
+- There is no per-request timeout yet. Latency is measured with `scripts/loadtest.py` (p95 at concurrency 10 on a laptop: about 42 ms with local uvicorn, about 58 ms in Docker) and exposed as `http_request_latency_seconds`.
 
 ## Failure Behavior
-- If model loading fails, the service does not accept traffic.
-- If inference fails, the request returns an explicit error response.
-- If persistence fails, inference still succeeds with degraded metadata.
+- If model loading fails, the service reports not ready and does not score (`503`).
+- If a prediction raises, the text is scored by whole-word keyword rules and the response is marked `degraded: true` with `model_version: "keyword-fallback-1.0"`.
+- If the keyword rules also fail, the response is `risk_score: 0.5`, `risk_label: "UNKNOWN"`, `degraded: true`.
 
 ## Trade-offs Accepted
 - Service restart required for model update
 - No per-request model switching
 - Limited flexibility in experimentation
+- No request timeout: a slow prediction holds its worker thread until it finishes
 
 ## Revisit Conditions
 - Multiple models required concurrently

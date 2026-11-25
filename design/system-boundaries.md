@@ -1,7 +1,7 @@
 # System Boundaries and Ownership
 
 ## Decision
-The system will act as a stateless inference service with clearly defined upstream and downstream dependencies, owning only risk scoring and metadata persistence.
+The system acts as a stateless inference service with clearly defined upstream and downstream dependencies, owning only risk scoring.
 
 ## Context
 - Ambiguous ownership leads to brittle systems.
@@ -9,30 +9,29 @@ The system will act as a stateless inference service with clearly defined upstre
 - Failure would involve hidden coupling to external systems or unclear responsibilities during incidents.
 
 ## Owned Components
-- HTTP inference API
+- HTTP inference API and the one-page UI
 - Input validation and schema enforcement
-- Feature extraction
-- Model loading and inference
+- Model loading and inference (feature extraction is inside the model pipeline)
+- Keyword fallback scoring
 - Risk score computation
-- Observability instrumentation
-- Metadata persistence
+- Observability instrumentation (JSON logs, Prometheus metrics)
+- Offline training script
 
 ## External Dependencies
 - Upstream content submission service (caller)
-- Kubernetes runtime
-- PostgreSQL database
-- Monitoring stack (Prometheus/Grafana)
+- Kubernetes runtime (or Docker Compose locally)
+- Prometheus (included in Docker Compose; not in the Kubernetes manifests)
 
 ## Explicitly Not Owned
 - Content policy definition
 - Enforcement decisions
+- Storing scores or content (no database)
 - User identity management
 - Abuse investigation workflows
 
 ## Trust Boundaries
-- External caller → inference API
-- API → database
-- API → monitoring systems
+- External caller to inference API
+- Prometheus scraping `/metrics`
 
 ## Failure Definition
 - Returning incorrect risk scores silently
@@ -40,8 +39,9 @@ The system will act as a stateless inference service with clearly defined upstre
 - Deploying unvalidated models
 
 ## Trade-offs Accepted
-- Single database instance
+- No persistence of scores
 - No asynchronous retries
+- No authentication on the API (expected to run on an internal network)
 
 ## Revisit Conditions
 - Introduction of moderation workflows
