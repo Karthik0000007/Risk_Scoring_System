@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Content Risk Scoring</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #5f6b7a; --border: #d9dee5;
+      --accent: #2557d6; --low: #1f9d55; --medium: #d98c00; --high: #d23b3b; --unknown: #7a8594;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 640px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; margin: 8px 0 4px; }
+    p.sub { margin: 0 0 16px; color: var(--muted); }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; margin-bottom: 16px;
+    }
+    textarea {
+      width: 100%; min-height: 120px; padding: 10px; font: inherit; resize: vertical;
+      border: 1px solid var(--border); border-radius: 8px;
+    }
+    .examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    button {
+      font: inherit; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .bar { height: 14px; background: #e6e9ee; border-radius: 7px; overflow: hidden; margin: 6px 0 12px; }
+    .fill { height: 100%; width: 0; transition: width 0.3s; }
+    .row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+    .row span:first-child { color: var(--muted); }
+    .score { font-size: 2rem; font-weight: 700; }
+    .label { font-weight: 700; }
+    .badge {
+      display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 6px;
+      background: #ffe36e; color: #5c4600; font-size: 0.8rem; font-weight: 700; vertical-align: middle;
+    }
+    .error {
+      background: #fdecec; border: 1px solid #f3b5b5; color: #8a1f1f;
+      border-radius: 8px; padding: 12px; margin-bottom: 16px;
+    }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Content Risk Scoring</h1>
+  <p class="sub">Paste a message to score it for spam or phishing risk.</p>
+
+  <div class="card">
+    <textarea id="content" maxlength="5000" placeholder="Type or paste a message..."></textarea>
+    <div class="examples">
+      <button type="button" data-example="normal">Normal message</button>
+      <button type="button" data-example="promo">Promo message</button>
+      <button type="button" data-example="phishing">Phishing-style</button>
+    </div>
+    <button type="button" id="score" class="primary">Score</button>
+  </div>
+
+  <div id="error" class="error" role="alert" hidden></div>
+
+  <div id="result" class="card" hidden>
+    <div>
+      <span id="score-value" class="score"></span>
+      <span id="degraded" class="badge" hidden>DEGRADED</span>
+    </div>
+    <div class="bar"><div id="fill" class="fill"></div></div>
+    <div class="row"><span>Label</span><span id="label" class="label"></span></div>
+    <div class="row"><span>Model version</span><span id="version"></span></div>
+    <div class="row"><span>Response time</span><span id="time"></span></div>
+  </div>
+</main>
+
+<script>
+  const EXAMPLES = {
+    normal: "Hey, are we still on for dinner tonight? Let me know what time works.",
+    promo: "Get 50% off all shoes this weekend only! Reply STOP to opt out.",
+    phishing: "URGENT: Your account is locked. Call 0800 123 4567 now to verify your details and claim your refund.",
+  };
+  const COLORS = { LOW: "--low", MEDIUM: "--medium", HIGH: "--high", UNKNOWN: "--unknown" };
+  const $ = (id) => document.getElementById(id);
+
+  document.querySelectorAll("[data-example]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      $("content").value = EXAMPLES[btn.dataset.example];
+      scoreText();
+    });
+  });
+  $("score").addEventListener("click", scoreText);
+
+  function showError(message) {
+    $("error").textContent = message;
+    $("error").hidden = false;
+    $("result").hidden = true;
+  }
+
+  function errorMessage(status, body) {
+    if (status === 503) return "The service is not ready: the model is not loaded. Try again shortly.";
+    if (status === 422) return "Please enter between 1 and 5000 characters.";
+    return `Request failed (HTTP ${status}). ${body.detail || ""}`;
+  }
+
+  function showResult(data, ms) {
+    const color = `var(${COLORS[data.risk_label] || "--unknown"})`;
+    $("score-value").textContent = data.risk_score.toFixed(2);
+    $("fill").style.width = `${Math.round(data.risk_score * 100)}%`;
+    $("fill").style.background = color;
+    $("label").textContent = data.risk_label;
+    $("label").style.color = color;
+    $("version").textContent = data.model_version;
+    $("time").textContent = `${ms} ms`;
+    $("degraded").hidden = !data.degraded;
+    $("error").hidden = true;
+    $("result").hidden = false;
+  }
+
+  async function scoreText() {
+    const content = $("content").value.trim();
+    if (!content) return showError("Please enter a message to score.");
+    $("score").disabled = true;
+    const start = performance.now();
+    try {
+      const res = await fetch("/score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      const ms = Math.round(performance.now() - start);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return showError(errorMessage(res.status, body));
+      showResult(body, ms);
+    } catch (err) {
+      showError("Could not reach the API. Is the service running?");
+    } finally {
+      $("score").disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

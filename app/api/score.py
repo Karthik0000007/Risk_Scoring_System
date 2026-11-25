@@ -1,14 +1,14 @@
-from fastapi import APIRouter
-from app.schemas.score import ScoreRequest, ScoreResponse
-from app.models.loader import ModelLoader
 import logging
+
+from fastapi import APIRouter, HTTPException
+
+from app.core.metrics import FALLBACKS, PREDICTIONS
+from app.models.loader import fallback, model
+from app.schemas.score import ScoreRequest, ScoreResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-model = ModelLoader()
-model.load()
 
 
 def _classify(score: float) -> str:
@@ -21,23 +21,39 @@ def _classify(score: float) -> str:
         return "HIGH"
 
 
+def _response(score_value: float, version: str, degraded: bool) -> ScoreResponse:
+    return ScoreResponse(
+        risk_score=score_value,
+        risk_label=_classify(score_value),
+        model_version=version,
+        degraded=degraded,
+    )
+
+
 @router.post("/score", response_model=ScoreResponse)
 def score(req: ScoreRequest):
+    if not model.loaded:
+        raise HTTPException(status_code=503, detail="model not loaded")
+    response = _predict(req.content)
+    PREDICTIONS.labels(label=response.risk_label).inc()
+    return response
+
+
+def _predict(text: str) -> ScoreResponse:
+    """Model first; keyword fallback if it raises; UNKNOWN if both fail."""
     try:
-        score_value = model.predict(req.content)
-        label = _classify(score_value)
-
-        return ScoreResponse(
-            risk_score=score_value,
-            risk_label=label,
-            model_version=model.model_version,
-        )
-
+        return _response(model.predict(text), model.model_version, False)
     except Exception as e:
-        logger.error(f"inference failed: {e}")
+        logger.error(f"model inference failed, using keyword fallback: {e}")
 
+    FALLBACKS.inc()
+    try:
+        return _response(fallback.predict(text), fallback.version, True)
+    except Exception as e:
+        logger.error(f"keyword fallback failed: {e}")
         return ScoreResponse(
             risk_score=0.5,
             risk_label="UNKNOWN",
-            model_version=model.model_version,
+            model_version=fallback.version,
+            degraded=True,
         )

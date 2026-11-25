@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: content-risk-scoring
+    # FastAPI mounts the metrics app at /metrics; /metrics/ avoids a 307 redirect.
+    metrics_path: /metrics/
+    static_configs:
+      - targets: ["app:8000"]

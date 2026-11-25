@@ -1,7 +1,7 @@
 # ML Pipeline Decisions
 
 ## Decision
-The system will use an offline, batch-trained text classification model with explicit versioning, reproducible training, and manual promotion into production.
+The system uses an offline, batch-trained text classification model with explicit versioning, reproducible training, and manual promotion (committing a new artifact).
 
 ## Context
 - The system provides synchronous risk scoring with strict latency guarantees.
@@ -17,9 +17,8 @@ The system will use an offline, batch-trained text classification model with exp
 **Option 1 was selected.**
 
 - Offline training allows deterministic, reproducible experiments.
-- Clear separation between training and serving reduces operational risk.
-- Manual promotion ensures that only validated models reach production.
-- This mirrors production ML practices in risk-sensitive systems.
+- Clear separation between training (`training/train.py`) and serving (`app/`) reduces operational risk.
+- Manual promotion ensures that a person reviews the metrics before a model is committed.
 
 ## Why Alternatives Were Rejected
 - Online learning complicates debugging and rollback.
@@ -27,24 +26,25 @@ The system will use an offline, batch-trained text classification model with exp
 - Automated promotion removes human judgment during failure-prone stages.
 
 ## Model Characteristics
-- Lightweight text model (e.g., linear or shallow neural model)
-- Deterministic preprocessing
-- Fixed feature schema shared between training and inference
+- scikit-learn `Pipeline`: `TfidfVectorizer` (word 1 and 2 grams) then `LogisticRegression`.
+- The vectorizer is saved inside the same joblib file as the classifier, so training and serving always use identical preprocessing (no training-serving skew).
+- Output is the spam-class probability, used directly as `risk_score`.
 
 ## Data Management
-- Training datasets are immutable once created.
-- Dataset versions are explicitly recorded.
-- Feature extraction logic is shared and versioned.
+- Dataset: SMS Spam Collection (UCI), 5,574 messages, kept in `data/` and not committed.
+- Stratified 80/20 split with a fixed seed (42) makes training reproducible.
+- `models/risk-v1.json` records version, training date, dataset name, row count, scikit-learn version and test metrics.
 
 ## Validation Strategy
-- Model performance must meet or exceed a fixed baseline.
-- Sanity checks on output distributions are required.
-- Inference latency is measured as part of validation.
+- Current: `train.py` prints precision, recall and F1 for the spam class on the held-out 20%, and writes them to the metadata file. `risk-v1`: precision 1.00, recall 0.75, F1 0.86.
+- Current: inference latency is measured separately with `scripts/loadtest.py`.
+- Not yet automated: there is no baseline check that blocks a worse model. A person compares metrics before committing.
 
 ## Trade-offs Accepted
 - Slower iteration speed
 - Manual intervention in model lifecycle
 - Lower peak model accuracy
+- The model only knows SMS-style spam; link-based phishing and threats score low
 
 ## Revisit Conditions
 - Dedicated ML platform support

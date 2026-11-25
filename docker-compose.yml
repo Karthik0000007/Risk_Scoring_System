@@ -1,0 +1,25 @@
+services:
+  app:
+    build: .
+    image: content-risk-scoring:latest
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL_PATH: /app/models/risk-v1.joblib
+    healthcheck:
+      # The slim image has no curl, so use Python. Fails unless /readyz returns 200.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      app:
+        condition: service_healthy

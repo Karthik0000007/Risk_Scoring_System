@@ -13,7 +13,7 @@ The system will provide synchronous, probabilistic risk scoring for text content
 - Offline, reproducible model training
 - Containerized deployment on Kubernetes
 - Observability (logs, metrics)
-- CI/CD gates preventing unsafe deployment
+- CI gates (lint, tests, image build) that block broken changes
 
 ## Explicit Non-Goals
 - No multimedia (image/video/audio)
@@ -24,7 +24,7 @@ The system will provide synchronous, probabilistic risk scoring for text content
 - No state-of-the-art NLP optimization
 
 ## Success Criteria
-- p95 inference latency < 50ms
+- Target: p95 latency under 50 ms at concurrency 10. Measured: 42 ms with local uvicorn (met), 58 ms in Docker Compose (not met yet). See the README Performance section.
 - Safe failure behavior under partial outages
 - Reproducible model training
 - Clear deployment rollback path

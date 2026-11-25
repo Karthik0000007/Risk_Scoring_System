@@ -1,7 +1,7 @@
 # Architecture Decisions
 
 ## Decision
-The system will be implemented as a single stateless HTTP inference service backed by a relational database, prioritizing simplicity, predictability, and safe failure over scalability.
+The system is a single stateless HTTP inference service with no database, prioritizing simplicity, predictability, and safe failure over scalability.
 
 ## Context
 - The system performs synchronous risk scoring on user-submitted text.
@@ -9,7 +9,7 @@ The system will be implemented as a single stateless HTTP inference service back
 - Failure would involve hidden coupling, complex deployment paths, or unclear operational behavior.
 
 ## Options Considered
-1. Single stateless inference service + database
+1. Single stateless inference service
 2. Microservices split (API, feature service, model service)
 3. Event-driven asynchronous pipeline
 
@@ -18,8 +18,8 @@ The system will be implemented as a single stateless HTTP inference service back
 
 - Stateless service simplifies scaling and rollback.
 - Fewer services reduce operational failure modes.
-- Database is used only for metadata persistence, not online inference.
-- Architecture mirrors conservative production systems commonly used in Japanese consumer platforms.
+- No database: each request is scored independently and nothing is persisted. The model is a file baked into the image and loaded once at startup.
+- The same image runs locally, in Docker Compose (with Prometheus) and in Kubernetes.
 
 ## Why Alternatives Were Rejected
 - Microservices introduce coordination overhead without clear benefit at this scale.
@@ -30,8 +30,10 @@ The system will be implemented as a single stateless HTTP inference service back
 - Vertical scaling over horizontal specialization
 - Limited independent component evolution
 - Single deployment unit
+- No record of past scores (callers must store results if they need them)
 
 ## Revisit Conditions
 - Sustained throughput above 500 RPS
 - Multiple models requiring independent lifecycle management
+- A need to persist scores for audit or retraining
 - Separate platform and ML ownership teams

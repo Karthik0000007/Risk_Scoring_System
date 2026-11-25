@@ -1,3 +1,5 @@
 .vscode
 __pycache__
 risk_env
+.venv
+data/

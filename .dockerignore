@@ -1,0 +1,17 @@
+# Keep the build context small: only app/, models/ and requirements.txt are needed.
+.git
+.github
+.venv
+risk_env
+data
+tests
+training
+scripts
+design
+k8s
+prometheus
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.vscode
+*.md

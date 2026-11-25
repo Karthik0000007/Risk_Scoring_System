@@ -1,8 +1,47 @@
+import json
 import os
 import re
+from pathlib import Path
+
+import joblib
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_MODEL_PATH = ROOT / "models" / "risk-v1.joblib"
 
 
-# ── Keyword dictionaries with per-category weights ──────────────────
+class ModelLoader:
+    """Loads the trained scikit-learn pipeline and returns spam probabilities."""
+
+    def __init__(self):
+        self.model_path = Path(os.getenv("MODEL_PATH", str(DEFAULT_MODEL_PATH)))
+        self.model_version = "unloaded"
+        self.pipeline = None
+        self.loaded = False
+        self.load_error: str | None = None
+
+    def load(self):
+        """Load the pipeline and metadata. Records the error and re-raises on failure."""
+        self.loaded = False
+        self.load_error = None
+        try:
+            if os.getenv("FAIL_MODEL_LOAD") == "true":
+                raise RuntimeError("model load failed intentionally")
+            self.pipeline = joblib.load(self.model_path)
+            metadata = json.loads(self.model_path.with_suffix(".json").read_text())
+            self.model_version = metadata["version"]
+        except Exception as e:
+            self.load_error = f"{type(e).__name__}: {e}"
+            raise
+        self.loaded = True
+
+    def predict(self, text: str) -> float:
+        """Return the probability (0.0 to 1.0) that the text is spam."""
+        if not self.loaded:
+            raise RuntimeError("model not loaded")
+        return float(self.pipeline.predict_proba([text])[0][1])
+
+
+# ── Keyword fallback, used only when the model fails at runtime ─────
 
 _CRITICAL_KEYWORDS = [
     "kill", "bomb", "attack", "murder", "shoot", "destroy", "terror",
@@ -24,63 +63,51 @@ _MEDIUM_KEYWORDS = [
     "free money", "risk", "warning", "alert", "danger",
 ]
 
-_CRITICAL_WEIGHT = 0.30
-_HIGH_WEIGHT     = 0.18
-_MEDIUM_WEIGHT   = 0.10
+
+def _compile(keywords: list[str]) -> list[re.Pattern]:
+    """Whole-word, case-insensitive patterns, so 'skill' does not match 'kill'."""
+    return [re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in keywords]
 
 
-class ModelLoader:
-    def __init__(self):
-        self.model_version = "heuristic-1.0.0"
-        self.loaded = False
+class KeywordFallback:
+    """Rule-based scorer with whole-word keyword matching."""
 
-    def load(self):
-        if os.getenv("FAIL_MODEL_LOAD") == "true":
-            raise RuntimeError("model load failed intentionally")
-        self.loaded = True
+    version = "keyword-fallback-1.0"
 
-    # ── Prediction ──────────────────────────────────────────────────
+    _RULES = [
+        (_compile(_CRITICAL_KEYWORDS), 0.30),
+        (_compile(_HIGH_KEYWORDS), 0.18),
+        (_compile(_MEDIUM_KEYWORDS), 0.10),
+    ]
 
     def predict(self, text: str) -> float:
-        """Return a risk score between 0.0 and 1.0 based on heuristics."""
-        if not self.loaded:
-            raise RuntimeError("model not loaded")
-
-        lower = text.lower()
-        score = 0.0
-
-        # 1. Keyword matching (each unique hit adds its category weight)
-        for kw in _CRITICAL_KEYWORDS:
-            if kw in lower:
-                score += _CRITICAL_WEIGHT
-
-        for kw in _HIGH_KEYWORDS:
-            if kw in lower:
-                score += _HIGH_WEIGHT
-
-        for kw in _MEDIUM_KEYWORDS:
-            if kw in lower:
-                score += _MEDIUM_WEIGHT
-
-        # 2. Text-style signals
-        #    Excessive CAPS (more than 60% uppercase letters → +0.10)
-        alpha_chars = [c for c in text if c.isalpha()]
-        if alpha_chars:
-            caps_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
-            if caps_ratio > 0.6:
-                score += 0.10
-
-        #    Excessive exclamation / question marks → +0.05
-        if text.count("!") + text.count("?") >= 3:
-            score += 0.05
-
-        #    URL-like patterns (common in phishing) → +0.08
-        if re.search(r"https?://", lower):
-            score += 0.08
-
-        # 3. Ensure baseline minimum & clamp to [0.0, 1.0]
+        """Return a risk score between 0.0 and 1.0."""
+        score = self._keyword_score(text) + self._style_score(text)
         if score == 0.0:
-            score = 0.05          # safe baseline for benign text
-        score = round(min(score, 1.0), 2)
+            score = 0.05  # safe baseline for benign text
+        return round(min(score, 1.0), 2)
 
+    def _keyword_score(self, text: str) -> float:
+        return sum(
+            weight
+            for patterns, weight in self._RULES
+            for pattern in patterns
+            if pattern.search(text)
+        )
+
+    @staticmethod
+    def _style_score(text: str) -> float:
+        score = 0.0
+        letters = [c for c in text if c.isalpha()]
+        if letters and sum(c.isupper() for c in letters) / len(letters) > 0.6:
+            score += 0.10  # excessive CAPS
+        if text.count("!") + text.count("?") >= 3:
+            score += 0.05  # excessive punctuation
+        if re.search(r"https?://", text, re.IGNORECASE):
+            score += 0.08  # URL, common in phishing
         return score
+
+
+# Shared instances. The model is loaded by the lifespan handler in app/main.py.
+model = ModelLoader()
+fallback = KeywordFallback()
